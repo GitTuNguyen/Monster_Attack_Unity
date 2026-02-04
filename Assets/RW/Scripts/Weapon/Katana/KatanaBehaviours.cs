@@ -2,7 +2,7 @@ public class KatanaBehaviours : WeaponBehaviour
 {
     protected override void Start()
     {
-        weaponController = FindObjectOfType<KatanaController>();
+        weaponController = FindFirstObjectByType<KatanaController>();
         base.Start();
         Destroy(gameObject, weaponController.timeToDestroy);
     }

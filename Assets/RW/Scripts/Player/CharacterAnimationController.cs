@@ -1,10 +1,12 @@
+﻿using Unity.Netcode.Components;
 using UnityEngine;
 
 public class CharacterAnimationController : MonoBehaviour
 {
     public Animator characterAnimator;
     public SpriteRenderer spriteRenderer;
-    
+    public NetworkAnimator networkAnimator;
+
     public void IdleAnimation()
     {
         characterAnimator.SetBool("IsRun", false);
@@ -17,7 +19,10 @@ public class CharacterAnimationController : MonoBehaviour
 
     public void TakeHitAnimation()
     {
-        characterAnimator.SetTrigger("TakeHit");
+        if (networkAnimator != null)
+            networkAnimator.SetTrigger("TakeHit");
+        else
+            characterAnimator.SetTrigger("TakeHit");
     }
 
     public void DeathAnimation()
@@ -28,7 +33,10 @@ public class CharacterAnimationController : MonoBehaviour
     public void ResetGame()
     {
         characterAnimator.SetBool("IsDeath", false);
-        characterAnimator.SetTrigger("Reset");
+        if (networkAnimator != null)
+            networkAnimator.SetTrigger("Reset");
+        else
+            characterAnimator.SetTrigger("Reset");
 
     }
 

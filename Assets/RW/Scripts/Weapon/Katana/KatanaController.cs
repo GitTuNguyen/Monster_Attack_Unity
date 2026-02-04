@@ -9,7 +9,7 @@ public class KatanaController : WeaponController
     private int i;
     protected override void Start()
     {
-        playerController = FindObjectOfType<PlayerController>();
+        playerController = FindFirstObjectByType<PlayerController>();
         transform.parent = player.transform;
         spawnPositionIndex = 0;
         base.Start();

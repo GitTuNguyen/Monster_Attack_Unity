@@ -10,7 +10,7 @@ public class VampireAxeBehaviour : WeaponBehaviour
     }
     protected override void Start()
     {
-        weaponController = FindObjectOfType<VampireAxeController>();
+        weaponController = FindFirstObjectByType<VampireAxeController>();
         base.Start();
         //dir = playerController.frontdDir;
         //Rotate(dir);

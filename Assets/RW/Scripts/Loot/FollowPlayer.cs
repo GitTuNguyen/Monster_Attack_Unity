@@ -1,54 +1,68 @@
-using System.Collections;
-using System.Collections.Generic;
 using UnityEngine;
 
 public class FollowPlayer : MonoBehaviour
 {
-    [SerializeField]
     private bool isFollowing;
-    [SerializeField]
     private Animator animator;
-    [SerializeField]
-    private Player player;
-    [SerializeField]
-    private Vector3 velocity = Vector3.zero;
-    [SerializeField]
-    public float modifier;
-    // Start is called before the first frame update
+    private Player targetPlayer;
+    private Vector3 velocity;
+
+    public float modifier = 5f;
+
     void Start()
     {
-        isFollowing = false;
         animator = GetComponent<Animator>();
-        player = FindObjectOfType<Player>();
+        TryAssignTarget();
     }
 
-    // Update is called once per frame
     void Update()
     {
-        if (player == null)
+        if (targetPlayer == null)
         {
-            player = FindObjectOfType<Player>();
+            TryAssignTarget();
+            return;
         }
+
         if (isFollowing)
         {
-            transform.position = Vector3.SmoothDamp(transform.position, player.transform.position, ref velocity, Time.deltaTime * modifier);
-        }        
+            transform.position = Vector3.SmoothDamp(
+                transform.position,
+                targetPlayer.transform.position,
+                ref velocity,
+                Time.deltaTime * modifier
+            );
+        }
+    }
+
+    private void TryAssignTarget()
+    {
+        if (Player.LocalPlayer != null)
+        {
+            targetPlayer = Player.LocalPlayer;
+            return;
+        }
+
+        targetPlayer = FindFirstObjectByType<Player>();
     }
 
     public void PickUp(bool isClaimAll = false)
     {
         isFollowing = true;
         if (isClaimAll)
-        {
-            modifier /= 2;
-        }
+            modifier *= 0.5f;
     }
+
     private void OnTriggerEnter2D(Collider2D collision)
     {
-        if (collision.CompareTag("PickUpArea"))
-        {
-            PickUp();
-            animator.SetTrigger("PickUp");
-        }
+        if (!collision.CompareTag("PickUpArea"))
+            return;
+
+        var player = collision.GetComponentInParent<Player>();
+        if (player == null || !player.IsOwner)
+            return;
+
+        targetPlayer = player;
+        PickUp();
+        animator.SetTrigger("PickUp");
     }
 }

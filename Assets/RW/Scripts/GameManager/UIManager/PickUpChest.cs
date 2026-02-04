@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -18,7 +18,7 @@ public class PickUpChest : MonoBehaviour
     private SkillController upgradeSkill;
     void Start()
     {
-        player = FindObjectOfType<Player>();
+        player = Player.LocalPlayer ?? FindFirstObjectByType<Player>();
         timeAfterChangeImage = 0;
         timeAfterOpenChest = 0;
         isOpened = false;
@@ -89,7 +89,7 @@ public class PickUpChest : MonoBehaviour
     {
         if (player == null)
         {
-            player = FindObjectOfType<Player>();
+            player = Player.LocalPlayer ?? FindFirstObjectByType<Player>();
         }
         if (upgradeSkill != null)
         {

@@ -1,3 +1,4 @@
+﻿using Unity.Netcode;
 using UnityEngine;
 
 public class Monster : Enemy
@@ -6,25 +7,45 @@ public class Monster : Enemy
     [SerializeField]
     private int monsterDame = 20;
 
-    private Player player;
-    // Start is called before the first frame update
-    protected override void Start()
-    {
-        base.Start();
-        player = FindObjectOfType<Player>();
-    }
+    private Player target;
 
-    // Update is called once per frame
     protected override void Update()
     {
-        if (player == null) return;
-        dir = new Vector2(player.transform.position.x - transform.position.x, player.transform.position.y - transform.position.y).normalized;
+        if (GameModeManager.Mode == GameMode.Multiplayer && !IsServer)
+            return;
+
+        target = FindClosestPlayer();
+        if (target == null) return;
+        dir = new Vector2(target.transform.position.x - transform.position.x, target.transform.position.y - transform.position.y).normalized;
         base.Update();
     }
-        
+
+    private Player FindClosestPlayer()
+    {
+        Player[] players = FindObjectsByType<Player>(FindObjectsSortMode.None);
+        if (players == null || players.Length == 0)
+            return null;
+
+        Player closest = null;
+        float minDistance = Mathf.Infinity;
+        foreach (var p in players)
+        {
+            float d = Vector2.Distance(transform.position, p.transform.position);
+            if (d < minDistance)
+            {
+                minDistance = d;
+                closest = p;
+            }
+        }
+
+        return closest;
+    }
 
     private void OnCollisionEnter2D(Collision2D collision)
     {
+        if (GameModeManager.Mode == GameMode.Multiplayer && !IsServer)
+            return;
+
         if (collision.collider.CompareTag("Player"))
         {
             collision.gameObject.GetComponent<Player>().LoseHP(monsterDame);
@@ -37,6 +58,9 @@ public class Monster : Enemy
 
     private void OnCollisionStay2D(Collision2D collision)
     {
+        if (GameModeManager.Mode == GameMode.Multiplayer && !IsServer)
+            return;
+
         if (collision.collider.CompareTag("Player"))
         {
             collision.gameObject.GetComponent<Player>().LoseHP(monsterDame);
@@ -52,7 +76,10 @@ public class Monster : Enemy
     protected override void FlipSprite()
     {
         base.FlipSprite();
-        if (transform.position.x > player.transform.position.x)
+        if (target == null)
+            return;
+
+        if (transform.position.x > target.transform.position.x)
         {
             spriteRenderer.flipX = true;
         }

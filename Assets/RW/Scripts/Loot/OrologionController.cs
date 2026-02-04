@@ -9,7 +9,7 @@ public class OrologionController : MonoBehaviour
     public float timeFreeze = 3f;
 
     private void Awake() {
-        enemySpawner = FindObjectOfType<EnemySpawner>();
+        enemySpawner = FindFirstObjectByType<EnemySpawner>();
     }
     private void OnCollisionEnter2D(Collision2D collision)
     {

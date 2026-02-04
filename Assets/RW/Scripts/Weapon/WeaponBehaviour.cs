@@ -10,16 +10,20 @@ public class WeaponBehaviour : MonoBehaviour
     public float pierce;
     public WeaponController weaponController;
     public Player player;
+
     protected virtual void Start()
-    {        
-        player = player = FindObjectOfType<Player>();
+    {
+        TryAssignPlayer();
         speed = weaponController.speed + player.projectileSpeed;
         dame = weaponController.dame + dame * player.increaseDame;
         pierce = weaponController.pierce;
-        transform.localScale = new Vector3(weaponController.projectileScale, weaponController.projectileScale, weaponController.projectileScale);
+        transform.localScale = Vector3.one * weaponController.projectileScale;
     }
+
     protected virtual void Update()
     {
+        if (!NetHelper.IsServerOrOffline())
+            return;
         Move();
     }
 
@@ -37,6 +41,17 @@ public class WeaponBehaviour : MonoBehaviour
     public virtual void OnAttackEnemy()
     {
         pierce--;
+    }
+
+    protected void TryAssignPlayer()
+    {
+        if (Player.LocalPlayer != null)
+        {
+            player = Player.LocalPlayer;
+            return;
+        }
+
+        player = FindFirstObjectByType<Player>();
     }
 
     protected void OnDestroy() 

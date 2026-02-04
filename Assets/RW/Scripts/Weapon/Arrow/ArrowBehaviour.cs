@@ -5,15 +5,15 @@ public class ArrowBehaviour : WeaponBehaviour
     private PlayerController playerController;
     private void Awake()
     {
-        player = FindObjectOfType<Player>();
-        playerController = FindObjectOfType<PlayerController>();
+        TryAssignPlayer();
+        playerController = FindFirstObjectByType<PlayerController>();
         Physics2D.IgnoreCollision(player.GetComponent<Collider2D>(), GetComponent<Collider2D>());
     }
     protected override void Start()
     {
-        weaponController = FindObjectOfType<ArrowController>();
+        weaponController = FindFirstObjectByType<ArrowController>();
         base.Start();
-        dir = playerController.frontdDir;
+        dir = playerController.frontDir;
         Rotate(dir);
         Destroy(gameObject, weaponController.timeToDestroy);
     }

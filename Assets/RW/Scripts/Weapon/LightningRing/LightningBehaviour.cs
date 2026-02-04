@@ -12,7 +12,7 @@ public class LightningBehaviour : WeaponBehaviour
     // Start is called before the first frame update
     protected override void Start()
     {
-        weaponController = FindObjectOfType<LightningController>();
+        weaponController = FindFirstObjectByType<LightningController>();
         base.Start();
         currentArea = baseArea * weaponController.projectileScale;
         enemyInsideArea = Physics2D.OverlapCircleAll(transform.position, currentArea, enemyLayerMask);

@@ -2,15 +2,23 @@ using UnityEngine;
 
 public class CameraController : MonoBehaviour
 {
-    public GameObject player;    
+    public Transform target;
 
-    // Update is called once per frame
-    void Update()
+    void LateUpdate()
     {
-        if (player != null)
+        if (target == null)
         {
-            Debug.Log("camera Move");
-            transform.position = new Vector3(player.transform.position.x, player.transform.position.y, transform.position.z);
-        }        
+            if (Player.LocalPlayer != null)
+            {
+                target = Player.LocalPlayer.transform;
+            }
+            return;
+        }
+
+        transform.position = new Vector3(
+            target.position.x,
+            target.position.y,
+            transform.position.z
+        );
     }
 }

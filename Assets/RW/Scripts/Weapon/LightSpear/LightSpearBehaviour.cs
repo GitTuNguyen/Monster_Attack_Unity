@@ -4,12 +4,12 @@ public class LightSpearBehaviour : WeaponBehaviour
 {
     private void Awake()
     {
-        player = FindObjectOfType<Player>();
+        TryAssignPlayer();
         Physics2D.IgnoreCollision(player.GetComponent<Collider2D>(), transform.GetComponent<Collider2D>());
     }
     protected override void Start()
     {
-        weaponController = FindObjectOfType<LightSpearController>();
+        weaponController = FindFirstObjectByType<LightSpearController>();
         base.Start();
         dir = new Vector2(Random.Range(-1f, 1f), Random.Range(-1f, 1f)).normalized;
         Rotate(dir);

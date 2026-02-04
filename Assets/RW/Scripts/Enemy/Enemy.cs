@@ -1,9 +1,10 @@
-using System.Collections;
+﻿using System.Collections;
 using System.Collections.Generic;
 using TMPro;
+using Unity.Netcode;
 using UnityEngine;
 
-public class Enemy : MonoBehaviour
+public class Enemy : NetworkBehaviour
 {
     [System.Serializable]
     public class LootItems
@@ -48,15 +49,28 @@ public class Enemy : MonoBehaviour
     protected float takeHitInterval;
     [SerializeField]
     protected float removeTimeDelay;
-    
-    //
+
+    public NetworkVariable<float> NetHealth = new(0f, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
+
     protected Vector2 dir;
     protected float timeAfterTakeHit;
     protected bool canTakeHit;
     protected bool isDied;
     protected EnemySpawner enemySpawner;
 
-    // Start is called before the first frame update
+    public override void OnNetworkSpawn()
+    {
+        if (IsServer)
+            NetHealth.Value = health;
+
+        NetHealth.OnValueChanged += OnHealthChanged;
+    }
+
+    public override void OnNetworkDespawn()
+    {
+        NetHealth.OnValueChanged -= OnHealthChanged;
+    }
+
     protected virtual void Start()
     {
         timeAfterTakeHit = 0;
@@ -68,9 +82,11 @@ public class Enemy : MonoBehaviour
         isFreezing = false;
     }
 
-    // Update is called once per frame
     protected virtual void Update()
-    {        
+    {
+        if (GameModeManager.Mode == GameMode.Multiplayer && !IsServer)
+            return;
+
         Move();
         FlipSprite();
         if (!canTakeHit && !isDied)
@@ -89,51 +105,80 @@ public class Enemy : MonoBehaviour
         if (!isDied && !isFreezing)
         {
             transform.Translate(dir * speed * Time.deltaTime);
-        }        
+        }
     }
-
 
     public void SetSpawner(EnemySpawner spawner)
     {
         enemySpawner = spawner;
     }
 
-    
+    private void OnHealthChanged(float oldValue, float newValue)
+    {
+        if (newValue < oldValue)
+        {
+            ShowFloatingText(oldValue - newValue);
+            if (!isFreezing)
+                FlashEffect();
+        }
+        health = newValue;
+    }
 
     public void LoseHP(float dmg)
     {
+        if (GameModeManager.Mode == GameMode.Multiplayer && !IsServer)
+            return;
+
         if (canTakeHit && !isDied)
         {
             AudioManager.Instance.PlaySFX("EnemyTakeHit");
-            ShowFloatingText(dmg);
+
             if (!isFreezing)
-            {                
                 FlashEffect();
-            }
+
             if (health > dmg)
-            {                
+            {
                 health -= dmg;
                 canTakeHit = false;
             }
             else
             {
+                health = 0;
                 Death();
             }
-        }        
+
+            NetHealth.Value = health;
+        }
     }
+
+
     public virtual void Death(bool isKillingAll = false)
     {
         if (!isDied)
         {
+            if (GameModeManager.Mode == GameMode.Multiplayer && !IsServer)
+                return;
+
             DropItem();
             isDied = true;
             if (!isKillingAll)
             {
                 enemySpawner.RemoveEnemyFromList(gameObject);
             }
-            Destroy(gameObject, removeTimeDelay);
-        }        
+
+            if (GameModeManager.Mode == GameMode.Multiplayer)
+                StartCoroutine(DespawnRoutine());
+            else
+                Destroy(gameObject, removeTimeDelay);
+        }
     }
+
+    private IEnumerator DespawnRoutine()
+    {
+        yield return new WaitForSeconds(removeTimeDelay);
+        NetworkObject.Despawn(true);
+    }
+
     protected void ShowFloatingText(float dame)
     {
         if (floatingTextPrefabs)
@@ -146,7 +191,7 @@ public class Enemy : MonoBehaviour
 
     protected virtual void FlipSprite()
     {
-        
+
     }
 
     protected void FlashEffect()
@@ -167,7 +212,10 @@ public class Enemy : MonoBehaviour
     }
 
     protected void DropItem()
-    {        
+    {
+        if (GameModeManager.Mode == GameMode.Multiplayer && !IsServer)
+            return;
+
         float rand = Random.Range(0f, 100f);
         List<LootItems> possibleDrop = new List<LootItems>();
         foreach (LootItems possibleDropItem in itemsList)
@@ -182,19 +230,29 @@ public class Enemy : MonoBehaviour
             int index = Random.Range(0, possibleDrop.Count);
             var lootItem = Instantiate(possibleDrop[index].itemPrefabs, this.transform.position, Quaternion.identity);
             GameStateManager.Instance.lootItemList.Add(lootItem);
+
+            if (GameModeManager.Mode == GameMode.Multiplayer)
+            {
+                var netObj = lootItem.GetComponent<NetworkObject>();
+                if (netObj != null)
+                    netObj.Spawn();
+            }
         }
     }
 
     protected void OnTriggerEnter2D(Collider2D other)
     {
+        if (GameModeManager.Mode == GameMode.Multiplayer && !IsServer)
+            return;
+
         if (other.CompareTag("Projectiles") && !isDied)
         {
             if (other.transform.TryGetComponent<WeaponBehaviour>(out var weapon))
             {
                 LoseHP(weapon.dame);
                 weapon.OnAttackEnemy();
-            }            
-        }        
+            }
+        }
     }
 
     public void Freeze(float timeFreeze)
@@ -206,7 +264,7 @@ public class Enemy : MonoBehaviour
         }
         freezeCoroutine = StartCoroutine(FreezeCoroutine());
     }
-        
+
 
     protected IEnumerator FreezeCoroutine()
     {

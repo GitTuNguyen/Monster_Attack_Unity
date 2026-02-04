@@ -9,13 +9,13 @@ public class AxeBehaviour : WeaponBehaviour
     private bool mIsFalling = false;
     private void Awake()
     {
-        player = FindObjectOfType<Player>();
+        TryAssignPlayer();
         rb = GetComponent<Rigidbody2D>();
         Physics2D.IgnoreCollision(player.GetComponent<Collider2D>(), transform.GetComponent<Collider2D>());
     }
     protected override void Start()
     {
-        weaponController = FindObjectOfType<AxeController>();
+        weaponController = FindFirstObjectByType<AxeController>();
         base.Start();
         dir = new Vector2(Random.Range(-0.5f, 0.5f), 1f).normalized;
         mFallingDir = new Vector2(0, -1f).normalized;

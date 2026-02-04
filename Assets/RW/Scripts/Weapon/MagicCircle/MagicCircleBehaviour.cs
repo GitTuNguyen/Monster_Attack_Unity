@@ -13,7 +13,7 @@ public class MagicCircleBehaviour : WeaponBehaviour
     // Start is called before the first frame update
     protected override void Start()
     {
-        weaponController = FindObjectOfType<MagicCircleController>();
+        weaponController = FindFirstObjectByType<MagicCircleController>();
         defaultRadius = transform.GetComponent<CircleCollider2D>().radius;
         Debug.Log("(start)weaponController.attackDuration = " + weaponController.attackDuration);
         base.Start();
@@ -34,7 +34,7 @@ public class MagicCircleBehaviour : WeaponBehaviour
         timeAttack = 0;
         if (weaponController == null)
         {
-            weaponController = FindObjectOfType<MagicCircleController>();
+            weaponController = FindFirstObjectByType<MagicCircleController>();
         }
         while (timeAttack < weaponController.attackDuration)
         {            

@@ -1,4 +1,4 @@
-using System.Collections;
+﻿using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -13,12 +13,19 @@ public class SkillController : MonoBehaviour
     public Player player;
     protected void Awake()
     {
-        player = FindObjectOfType<Player>();
+        player = GetComponentInParent<Player>();
+        if (player == null)
+            player = Player.LocalPlayer ?? FindFirstObjectByType<Player>();
     }
 
     protected virtual void Start()
     {
-        level = 1;        
+        level = 1;
+    }
+
+    public void SetOwner(Player owner)
+    {
+        player = owner;
     }
 
     public virtual void SetStats(int level)

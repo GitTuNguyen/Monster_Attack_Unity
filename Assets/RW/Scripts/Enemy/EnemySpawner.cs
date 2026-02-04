@@ -1,91 +1,158 @@
-using System.Collections;
+﻿using System.Collections;
 using System.Collections.Generic;
-using Unity.VisualScripting;
+using Unity.Netcode;
 using UnityEngine;
 
 public class EnemySpawner : MonoBehaviour
 {
-
+    [Header("Enemy Prefabs")]
     public float maxNumberOfEnemy;
-    public List<GameObject> normalMonsterPrefabs = new List<GameObject>();
-    public List<GameObject> eliteMonsterPrefabs = new List<GameObject>();
-    public List<GameObject> bossPrefabs = new List<GameObject>();
+    public List<GameObject> normalMonsterPrefabs = new();
+    public List<GameObject> eliteMonsterPrefabs = new();
+    public List<GameObject> bossPrefabs = new();
     public GameObject chickenPrefabs;
-    [Header("Settings")]
+
+    [Header("Spawn Settings")]
     public float timeBetweenSpawns;
     public float radiusSpawnerCircle;
+
     public float spawnEliteMonsterInterval;
-    public float timeToSpawnEliteMonster;
     public float spawnBossInterval;
-    public float timeToSpawnBoss;
     public float spawnChickenInterval;
-    public float timeToSpawnChicken;
-    [HideInInspector]
-    public List<GameObject> enemyList = new List<GameObject>();
-    private Player player;
-    
-    bool isFreezing = false;
+
+    private float timeToSpawnEliteMonster;
+    private float timeToSpawnBoss;
+    private float timeToSpawnChicken;
+
+    [Header("Runtime")]
+    public List<GameObject> enemyList = new();
+
+    private bool isFreezing = false;
+    private Player cachedPlayer;
+
     void Start()
     {
+        if (GameModeManager.Mode == GameMode.Multiplayer && !NetworkManager.Singleton.IsServer)
+        {
+            enabled = false;
+            return;
+        }
+
+        cachedPlayer = GetClosestPlayer();
         StartCoroutine(SpawnRoutine());
-        timeToSpawnChicken = 0;
-        timeToSpawnEliteMonster = 0;
-        timeToSpawnBoss = 0;
     }
 
-    // Update is called once per frame
     void Update()
     {
+        if (GameModeManager.Mode == GameMode.Multiplayer && !NetworkManager.Singleton.IsServer)
+            return;
+
         timeToSpawnChicken += Time.deltaTime;
         timeToSpawnEliteMonster += Time.deltaTime;
         timeToSpawnBoss += Time.deltaTime;
     }
-    private void SpawnEnemy()
+
+    private Player GetClosestPlayer()
     {
-        if (player == null)
+        Player[] players = FindObjectsByType<Player>(FindObjectsSortMode.None);
+        if (players == null || players.Length == 0)
+            return null;
+
+        Player closest = null;
+        float minDistance = float.MaxValue;
+
+        foreach (var p in players)
         {
-            player = FindObjectOfType<Player>();
-        }
-        Vector2 playerPosition = player.transform.position;
-        Vector2 spawnPosition = new Vector2(playerPosition.x, playerPosition.y) + Random.insideUnitCircle.normalized * radiusSpawnerCircle + new Vector2(Random.Range(0, 5), Random.Range(0, 5));
-        GameObject enemyPrefabs = null;
-        if (enemyList.Count < maxNumberOfEnemy)
-        {
-            enemyPrefabs = normalMonsterPrefabs[Random.Range(0, normalMonsterPrefabs.Count)];
-            
-        }
-        if (timeToSpawnChicken >= spawnChickenInterval)
-        {
-            enemyPrefabs = chickenPrefabs;
-            timeToSpawnChicken = 0;
+            float d = Vector2.Distance(transform.position, p.transform.position);
+            if (d < minDistance)
+            {
+                minDistance = d;
+                closest = p;
+            }
         }
 
-        if (timeToSpawnBoss >= spawnBossInterval)
-        {
-            enemyPrefabs = bossPrefabs[Random.Range(0, bossPrefabs.Count)];
-            timeToSpawnBoss = 0;
-        }
-        if (timeToSpawnEliteMonster >= spawnEliteMonsterInterval)
-        {
-            enemyPrefabs = eliteMonsterPrefabs[Random.Range(0, eliteMonsterPrefabs.Count)];
-            timeToSpawnEliteMonster = 0;
-        }
-        if (enemyPrefabs != null)
-        {
-            GameObject enemy = Instantiate(enemyPrefabs, spawnPosition, enemyPrefabs.transform.rotation);
-            enemyList.Add(enemy);
-            enemy.GetComponent<Enemy>().SetSpawner(this);
-        }        
+        return closest;
     }
-    
+
+    private void SpawnEnemy()
+    {
+        if (enemyList.Count >= maxNumberOfEnemy)
+            return;
+
+        if (cachedPlayer == null)
+            cachedPlayer = GetClosestPlayer();
+
+        if (cachedPlayer == null)
+            return;
+
+        Vector2 basePos = cachedPlayer.transform.position;
+        Vector2 spawnPosition =
+            basePos +
+            Random.insideUnitCircle.normalized * radiusSpawnerCircle +
+            new Vector2(Random.Range(0, 5), Random.Range(0, 5));
+
+        GameObject prefabToSpawn = SelectEnemyPrefab();
+        if (prefabToSpawn == null)
+            return;
+
+        GameObject enemy = Instantiate(
+            prefabToSpawn,
+            spawnPosition,
+            prefabToSpawn.transform.rotation
+        );
+
+        enemyList.Add(enemy);
+
+        Enemy enemyController = enemy.GetComponent<Enemy>();
+        if (enemyController != null)
+            enemyController.SetSpawner(this);
+
+        if (GameModeManager.Mode == GameMode.Multiplayer)
+        {
+            NetworkObject netObj = enemy.GetComponent<NetworkObject>();
+            if (netObj != null)
+                netObj.Spawn();
+        }
+    }
+
+    private GameObject SelectEnemyPrefab()
+    {
+
+        if (timeToSpawnBoss >= spawnBossInterval && bossPrefabs.Count > 0)
+        {
+            timeToSpawnBoss = 0;
+            return bossPrefabs[Random.Range(0, bossPrefabs.Count)];
+        }
+
+        if (timeToSpawnEliteMonster >= spawnEliteMonsterInterval && eliteMonsterPrefabs.Count > 0)
+        {
+            timeToSpawnEliteMonster = 0;
+            return eliteMonsterPrefabs[Random.Range(0, eliteMonsterPrefabs.Count)];
+        }
+
+        if (timeToSpawnChicken >= spawnChickenInterval && chickenPrefabs != null)
+        {
+            timeToSpawnChicken = 0;
+            return chickenPrefabs;
+        }
+
+        if (normalMonsterPrefabs.Count > 0)
+        {
+            return normalMonsterPrefabs[Random.Range(0, normalMonsterPrefabs.Count)];
+        }
+
+        return null;
+    }
+
     private IEnumerator SpawnRoutine()
     {
         while (!GameStateManager.Instance.isGameOver)
-        {   
-            if (!isFreezing)     
+        {
+            if (!isFreezing)
             {
-                SpawnEnemy();                
+                SpawnEnemy();
             }
+
             yield return new WaitForSeconds(timeBetweenSpawns);
         }
     }
@@ -98,11 +165,11 @@ public class EnemySpawner : MonoBehaviour
     public void FreezesAllEnemy(float timeFreeze)
     {
         isFreezing = true;
-        StartCoroutine(FreezeRoutine(timeFreeze));        
+        StartCoroutine(FreezeRoutine(timeFreeze));
     }
 
     private IEnumerator FreezeRoutine(float timeFreeze)
-    {        
+    {
         foreach (GameObject enemy in enemyList)
         {
             Enemy enemyController = enemy.GetComponent<Enemy>();
@@ -111,14 +178,30 @@ public class EnemySpawner : MonoBehaviour
                 enemyController.Freeze(timeFreeze);
             }
         }
+
         yield return new WaitForSeconds(timeFreeze);
         isFreezing = false;
     }
+
     public void DestroyAllEnemy()
     {
         foreach (GameObject enemy in enemyList)
         {
-            Destroy(enemy);
+            if (enemy == null)
+                continue;
+
+            if (GameModeManager.Mode == GameMode.Multiplayer)
+            {
+                NetworkObject netObj = enemy.GetComponent<NetworkObject>();
+                if (netObj != null && netObj.IsSpawned)
+                    netObj.Despawn(true);
+                else
+                    Destroy(enemy);
+            }
+            else
+            {
+                Destroy(enemy);
+            }
         }
 
         enemyList.Clear();
@@ -128,12 +211,16 @@ public class EnemySpawner : MonoBehaviour
     {
         foreach (GameObject enemy in enemyList)
         {
+            if (enemy == null)
+                continue;
+
             Enemy enemyController = enemy.GetComponent<Enemy>();
             if (enemyController != null)
             {
                 enemyController.Death(true);
             }
         }
+
         enemyList.Clear();
     }
 }

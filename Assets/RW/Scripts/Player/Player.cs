@@ -1,15 +1,16 @@
+﻿using System;
 using System.Collections.Generic;
-using UnityEngine;
-using TMPro;
-using System;
-using Random = UnityEngine.Random;
 using System.Linq;
-using Unity.VisualScripting;
+using TMPro;
+using Unity.Netcode;
+using UnityEngine;
+using Random = UnityEngine.Random;
 
-public class Player : MonoBehaviour
+public class Player : NetworkBehaviour
 {
+    public static Player LocalPlayer { get; private set; }
+
     public CharacterStats characterStats;
-    //public List<SkillController> allSkill;
     public List<WeaponController> allWeaponList;
     public List<WeaponController> currentWeaponList;
     public List<PassivesSkillController> allPassiveSkillList;
@@ -61,38 +62,76 @@ public class Player : MonoBehaviour
     public float projectileSpeed;
     public float bonusMaxHealth;
     public float bonusExperience;
-    
-    // Start is called before the first frame update
-    void Start()
+
+    [Header("Network Stats")]
+    public NetworkVariable<float> NetCurrentHealth = new(0f, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
+    public NetworkVariable<float> NetMaxHealth = new(0f, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
+    public NetworkVariable<float> NetCurrentExp = new(0f, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
+    public NetworkVariable<float> NetMaxExp = new(0f, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
+    public NetworkVariable<int> NetLevel = new(1, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
+
+    private bool IsOffline => GameModeManager.Mode == GameMode.Offline;
+    private bool IsServerAuthority => GameModeManager.Mode == GameMode.Multiplayer && IsServer;
+    private bool IsLocalPlayerInstance => IsOffline || IsOwner;
+
+    public override void OnNetworkSpawn()
     {
-        AudioManager.Instance.PlayMusic("ThemeMusic");
-        playerController = FindObjectOfType<PlayerController>();
+        if (IsOwner)
+            LocalPlayer = this;
 
-        SetCharacterDefaultStats();
-        UpgradeWeapon(characterStats.defaultWeapon);
+        playerController = GetComponentInParent<PlayerController>();
 
-        timeAfterTakeHit = 0;
-        maxNumberOfWeapon = 6;
-        amountWeaponSelectableWhenLvUp = 3;
-        remainingExp = 0;
-        isTakeHitInterval = false;
+        if (GameModeManager.Mode != GameMode.Multiplayer)
+            return;
 
-        UIManager.Instance.UpdateLeveTextlUI(playerLevel);
-        healthBar.SetMaxHeath(maxHealth);
-        healthBar.SetCurrentHeath(currentHealth);
-        UIManager.Instance.SetMaxEXP(maxExp);
-        UIManager.Instance.SetCurrentEXP(currentExp);
-        // var tempAllWeaponList = new List<SkillController>(allWeaponList);
-        // allSkill.AddRange(tempAllWeaponList);
-        // var tempAllPassiveList = new List<SkillController>(allPassiveSkillList);
-        // allSkill.AddRange(tempAllPassiveList);
+        NetCurrentHealth.OnValueChanged += OnNetStatsChanged;
+        NetMaxHealth.OnValueChanged += OnNetStatsChanged;
+        NetCurrentExp.OnValueChanged += OnNetStatsChanged;
+        NetMaxExp.OnValueChanged += OnNetStatsChanged;
+        NetLevel.OnValueChanged += OnNetLevelChanged;
+
+        if (IsServer)
+        {
+            InitializeRuntime();
+            SyncNetStats();
+        }
+
+        if (IsLocalPlayerInstance)
+        {
+            AudioManager.Instance.PlayMusic("ThemeMusic");
+            RefreshLocalUIFromNet();
+        }
     }
 
-    // Update is called once per frame
+    public override void OnNetworkDespawn()
+    {
+        NetCurrentHealth.OnValueChanged -= OnNetStatsChanged;
+        NetMaxHealth.OnValueChanged -= OnNetStatsChanged;
+        NetCurrentExp.OnValueChanged -= OnNetStatsChanged;
+        NetMaxExp.OnValueChanged -= OnNetStatsChanged;
+        NetLevel.OnValueChanged -= OnNetLevelChanged;
+
+        if (LocalPlayer == this)
+            LocalPlayer = null;
+    }
+
+    void Start()
+    {
+        if (IsOffline)
+        {
+            AudioManager.Instance.PlayMusic("ThemeMusic");
+            playerController = GetComponentInParent<PlayerController>();
+            InitializeRuntime();
+        }
+    }
+
     void Update()
     {
         if (!GameStateManager.Instance.isGameOver)
         {
+            if (GameModeManager.Mode == GameMode.Multiplayer && !IsServer)
+                return;
+
             Move();
             if (isTakeHitInterval)
             {
@@ -104,20 +143,96 @@ public class Player : MonoBehaviour
                 }
             }
         }
-    }    
+    }
+
+    private void InitializeRuntime()
+    {
+        SetCharacterDefaultStats();
+        UpgradeWeapon(characterStats.defaultWeapon);
+
+        timeAfterTakeHit = 0;
+        maxNumberOfWeapon = 6;
+        amountWeaponSelectableWhenLvUp = 3;
+        remainingExp = 0;
+        isTakeHitInterval = false;
+
+        if (IsOffline)
+        {
+            UIManager.Instance.UpdateLeveTextlUI(playerLevel);
+            healthBar.SetMaxHeath(maxHealth);
+            healthBar.SetCurrentHeath(currentHealth);
+            UIManager.Instance.SetMaxEXP(maxExp);
+            UIManager.Instance.SetCurrentEXP(currentExp);
+        }
+    }
+
+    private void SyncNetStats()
+    {
+        if (!IsServerAuthority)
+            return;
+
+        NetCurrentHealth.Value = currentHealth;
+        NetMaxHealth.Value = maxHealth;
+        NetCurrentExp.Value = currentExp;
+        NetMaxExp.Value = maxExp;
+        NetLevel.Value = playerLevel;
+    }
+
+    private void RefreshLocalUIFromNet()
+    {
+        if (!IsLocalPlayerInstance)
+            return;
+
+        UIManager.Instance.UpdateLeveTextlUI(NetLevel.Value);
+        healthBar.SetMaxHeath(NetMaxHealth.Value);
+        healthBar.SetCurrentHeath(NetCurrentHealth.Value);
+        UIManager.Instance.SetMaxEXP(NetMaxExp.Value);
+        UIManager.Instance.SetCurrentEXP(NetCurrentExp.Value);
+    }
+
+    private void OnNetStatsChanged(float oldValue, float newValue)
+    {
+        RefreshLocalUIFromNet();
+    }
+
+    private void OnNetLevelChanged(int oldValue, int newValue)
+    {
+        RefreshLocalUIFromNet();
+    }
 
     private void Move()
     {
-        transform.Translate(playerController.moveDir * playerSpeed * Time.deltaTime);
+        if (!playerController)
+            playerController = GetComponentInParent<PlayerController>();
+
+        if (!playerController)
+            return;
+
+        Vector2 dir = GameModeManager.Mode == GameMode.Offline
+            ? playerController.moveDir
+            : playerController.ServerMoveDir;
+
+        transform.Translate(dir * playerSpeed * Time.deltaTime);
     }
-    
+
+
+
+    public void SetPlayerController(PlayerController controller)
+    {
+        playerController = controller;
+    }
+
+
     public void LoseHP(int dmg)
     {
+        if (GameModeManager.Mode == GameMode.Multiplayer && !IsServer)
+            return;
+
         float takeHitRate = Random.Range(0f, 100f);
         if (takeHitRate > dodgeRate)
         {
             if (!isTakeHitInterval && currentHealth != 0)
-            {            
+            {
                 dmg = dmg - (int)armor > 0 ? dmg - (int)armor : 0;
                 if (currentHealth > dmg)
                 {
@@ -131,9 +246,12 @@ public class Player : MonoBehaviour
                 {
                     Death();
                 }
-                healthBar.SetCurrentHeath(currentHealth);
+                if (IsOffline)
+                    healthBar.SetCurrentHeath(currentHealth);
+
+                SyncNetStats();
             }
-        }        
+        }
     }
 
     private void ShowFloatingText(float number, bool isLoseHp)
@@ -145,16 +263,20 @@ public class Player : MonoBehaviour
             {
                 text.GetComponent<TextMeshPro>().text = $"-{number}";
                 text.GetComponent<TextMeshPro>().color = Color.red;
-            } else
+            }
+            else
             {
                 text.GetComponent<TextMeshPro>().text = $"+{number}";
                 text.GetComponent<TextMeshPro>().color = Color.green;
-            }            
+            }
         }
     }
 
     public void SetPassiveBonus(PassivesSkillStats passiveStat)
     {
+        if (GameModeManager.Mode == GameMode.Multiplayer && !IsServer)
+            return;
+
         reduceCooldown += passiveStat.reduceCooldown;
         increaseDame += passiveStat.increaseDame;
         armor += passiveStat.armor;
@@ -165,25 +287,34 @@ public class Player : MonoBehaviour
         bonusExperience += passiveStat.bonusExperience;
 
         playerSpeed += moveSpeed;
-        maxHealth +=  maxHealth*bonusMaxHealth;
+        maxHealth += maxHealth * bonusMaxHealth;
         RefreshWeapontController();
+        SyncNetStats();
     }
 
     private void RefreshWeapontController()
     {
-        foreach(var weapon in currentWeaponList)
+        foreach (var weapon in currentWeaponList)
         {
             weapon.SetStats(weapon.level);
         }
     }
+
     public void PickUpChest()
     {
+        if (!IsLocalPlayerInstance)
+            return;
+
         Array.Find(AudioManager.Instance.musicSounds, musicSound => musicSound.name == "ThemeMusic").audioSource.Stop();
         GameStateManager.Instance.StopGame();
         UIManager.Instance.pickUpChestUI.gameObject.SetActive(true);
     }
+
     public void GainHP(int health)
     {
+        if (GameModeManager.Mode == GameMode.Multiplayer && !IsServer)
+            return;
+
         health += (int)bonusHealing;
         ShowFloatingText(health, false);
         if (currentHealth + health > maxHealth)
@@ -194,10 +325,17 @@ public class Player : MonoBehaviour
         {
             currentHealth += health;
         }
-        healthBar.SetCurrentHeath(currentHealth);
+        if (IsOffline)
+            healthBar.SetCurrentHeath(currentHealth);
+
+        SyncNetStats();
     }
+
     public void GainEXP(float exp, bool isRemainingExp = false)
     {
+        if (GameModeManager.Mode == GameMode.Multiplayer && !IsServer)
+            return;
+
         if (!isRemainingExp)
         {
             exp += exp * bonusExperience;
@@ -216,42 +354,195 @@ public class Player : MonoBehaviour
         {
             currentExp += exp;
             remainingExp = 0;
-            UIManager.Instance.levelUpUI.gameObject.SetActive(false);
-            GameStateManager.Instance.ResumeGame();
+            if (IsOffline)
+            {
+                UIManager.Instance.levelUpUI.gameObject.SetActive(false);
+                GameStateManager.Instance.ResumeGame();
+            }
         }
-        UIManager.Instance.SetCurrentEXP(currentExp);
+        if (IsOffline)
+            UIManager.Instance.SetCurrentEXP(currentExp);
+
+        SyncNetStats();
     }
+
     public void UpLevel()
     {
+        if (GameModeManager.Mode == GameMode.Multiplayer)
+        {
+            playerLevel++;
+            UpdateStatsLevelUp();
+            currentExp = maxExp;
+            SyncNetStats();
+
+            List<SkillController> selectable = SelectableWeaponToUpgrade();
+            if (selectable.Count > 0)
+            {
+                SkillOptionInfo[] options = BuildSkillOptions(selectable);
+                ShowLevelUpOptionsToOwner(options);
+            }
+            else
+            {
+                currentExp = 0;
+                isLevelingUp = false;
+                SyncNetStats();
+            }
+            return;
+        }
+
         Debug.Log("level up " + playerLevel);
         GameStateManager.Instance.StopGame();
         AudioManager.Instance.PlaySFX("LevelUp");
         playerLevel++;
         UpdateStatsLevelUp();
-        
+
         healthBar.SetMaxHeath(maxHealth);
-        
+
         currentExp = maxExp;
         UIManager.Instance.SetCurrentEXP(currentExp);
         UIManager.Instance.SetMaxEXP(maxExp);
         UIManager.Instance.levelUpUI.SetLevelUp(SelectableWeaponToUpgrade());
         UIManager.Instance.levelUpUI.gameObject.SetActive(true);
     }
+
+    private void ShowLevelUpOptionsToOwner(SkillOptionInfo[] options)
+    {
+        if (options == null || options.Length == 0)
+            return;
+
+        var rpcParams = new ClientRpcParams
+        {
+            Send = new ClientRpcSendParams
+            {
+                TargetClientIds = new[] { OwnerClientId }
+            }
+        };
+        ShowLevelUpOptionsClientRpc(options, rpcParams);
+    }
+
+    [ClientRpc]
+    private void ShowLevelUpOptionsClientRpc(SkillOptionInfo[] options, ClientRpcParams rpcParams = default)
+    {
+        if (!IsOwner)
+            return;
+
+        UIManager.Instance.levelUpUI.SetLevelUpNetwork(this, options);
+        UIManager.Instance.levelUpUI.gameObject.SetActive(true);
+    }
+
+    [ClientRpc]
+    private void CloseLevelUpClientRpc(ClientRpcParams rpcParams = default)
+    {
+        if (!IsOwner)
+            return;
+
+        UIManager.Instance.levelUpUI.Close();
+    }
+
+    [ServerRpc]
+    public void RequestUpgradeSkillServerRpc(string skillName)
+    {
+        if (string.IsNullOrEmpty(skillName))
+            return;
+
+        var rpcParams = new ClientRpcParams
+        {
+            Send = new ClientRpcSendParams
+            {
+                TargetClientIds = new[] { OwnerClientId }
+            }
+        };
+        CloseLevelUpClientRpc(rpcParams);
+
+        SkillController skill = FindSkillByName(skillName);
+        if (skill == null)
+            return;
+
+        UpgradeSkill(skill);
+    }
+
+    private SkillController FindSkillByName(string skillName)
+    {
+        if (string.IsNullOrEmpty(skillName))
+            return null;
+
+        foreach (var weapon in currentWeaponList)
+        {
+            if (weapon != null && weapon.skillName == skillName)
+                return weapon;
+        }
+
+        foreach (var passive in currentPassiveSkillList)
+        {
+            if (passive != null && passive.skillName == skillName)
+                return passive;
+        }
+
+        foreach (var weapon in allWeaponList)
+        {
+            if (weapon != null && weapon.skillName == skillName)
+                return weapon;
+        }
+
+        foreach (var passive in allPassiveSkillList)
+        {
+            if (passive != null && passive.skillName == skillName)
+                return passive;
+        }
+
+        return null;
+    }
+
+    private SkillOptionInfo[] BuildSkillOptions(List<SkillController> selectable)
+    {
+        List<SkillOptionInfo> list = new List<SkillOptionInfo>();
+        foreach (var skill in selectable)
+        {
+            if (skill == null)
+                continue;
+
+            bool isOwned = currentWeaponList.Contains(skill as WeaponController) || currentPassiveSkillList.Contains(skill as PassivesSkillController);
+            int nextLevel = isOwned ? skill.level + 1 : 1;
+            string desc = GetDescriptionFor(skill, nextLevel);
+            list.Add(new SkillOptionInfo(skill.skillName, desc, nextLevel, skill.skillType == SkillType.Weapon));
+        }
+        return list.ToArray();
+    }
+
+    private string GetDescriptionFor(SkillController skill, int nextLevel)
+    {
+        if (skill is WeaponController weapon)
+        {
+            int idx = Mathf.Clamp(nextLevel - 1, 0, weapon.stats.Count - 1);
+            return weapon.stats[idx].description;
+        }
+        if (skill is PassivesSkillController passive)
+        {
+            int idx = Mathf.Clamp(nextLevel - 1, 0, passive.stats.Count - 1);
+            return passive.stats[idx].description;
+        }
+        return string.Empty;
+    }
+
     private void Death()
     {
         currentHealth = 0;
         AudioManager.Instance.PlayMusic("GameOver");
         animationController.DeathAnimation();
         GameStateManager.Instance.GameOver();
+        SyncNetStats();
     }
-        
+
     public void UpgradeWeapon(WeaponController weaponController)
     {
+        if (GameModeManager.Mode == GameMode.Multiplayer && !IsServer)
+            return;
+
         bool isAvailable = false;
         foreach (WeaponController weapon in currentWeaponList)
         {
             if (weapon == weaponController)
-            {                
+            {
                 weapon.Upgrade();
                 isAvailable = true;
                 break;
@@ -259,20 +550,27 @@ public class Player : MonoBehaviour
         }
         if (!isAvailable)
         {
-            WeaponController newWeapon = Instantiate(weaponController, transform.position, Quaternion.identity);            
+            WeaponController newWeapon = Instantiate(weaponController, transform.position, Quaternion.identity);
+            newWeapon.SetOwner(this);
             newWeapon.SetStats(1);
             currentWeaponList.Add(newWeapon);
-            UIManager.Instance.UpdateInventoryUI(newWeapon.sprite);
+            if (IsOffline)
+                UIManager.Instance.UpdateInventoryUI(newWeapon.sprite);
         }
-        
+
+        SyncNetStats();
     }
+
     public void UpgradePassiveSkill(PassivesSkillController passivesSkillController)
     {
+        if (GameModeManager.Mode == GameMode.Multiplayer && !IsServer)
+            return;
+
         bool isAvailable = false;
         foreach (PassivesSkillController passive in currentPassiveSkillList)
         {
             if (passive == passivesSkillController)
-            {                
+            {
                 passive.Upgrade();
                 isAvailable = true;
                 break;
@@ -281,22 +579,33 @@ public class Player : MonoBehaviour
         if (!isAvailable)
         {
             PassivesSkillController newPassiveSkill = Instantiate(passivesSkillController, transform.position, Quaternion.identity);
+            newPassiveSkill.SetOwner(this);
             newPassiveSkill.SetStats(1);
             currentPassiveSkillList.Add(newPassiveSkill);
-            UIManager.Instance.UpdateInventoryUI(newPassiveSkill.sprite, false);
-        }             
-                    
+            if (IsOffline)
+                UIManager.Instance.UpdateInventoryUI(newPassiveSkill.sprite, false);
+        }
+
+        SyncNetStats();
     }
+
     public void UpgradeSkill(SkillController skill)
     {
+        if (GameModeManager.Mode == GameMode.Multiplayer && !IsServer)
+            return;
+
+        if (skill == null)
+            return;
+
         if (skill.skillType == SkillType.Weapon)
         {
-            WeaponController weapon =  skill as WeaponController;
+            WeaponController weapon = skill as WeaponController;
             if (weapon != null)
             {
                 UpgradeWeapon(weapon);
             }
-        } else 
+        }
+        else
         {
             PassivesSkillController passive = skill as PassivesSkillController;
             if (passive != null)
@@ -304,45 +613,56 @@ public class Player : MonoBehaviour
                 UpgradePassiveSkill(passive);
             }
         }
-        AudioManager.Instance.PlaySFX("PowerUp");
-        UIManager.Instance.UpdateLeveTextlUI(playerLevel);
-        UIManager.Instance.SetMaxEXP(maxExp);        
+
+        if (IsOffline)
+        {
+            AudioManager.Instance.PlaySFX("PowerUp");
+            UIManager.Instance.UpdateLeveTextlUI(playerLevel);
+            UIManager.Instance.SetMaxEXP(maxExp);
+        }
+
         currentExp = 0;
-        UIManager.Instance.SetCurrentEXP(currentExp);
+        if (IsOffline)
+            UIManager.Instance.SetCurrentEXP(currentExp);
+
         isLevelingUp = false;
         if (remainingExp > 0)
-        {            
+        {
             GainEXP(remainingExp, true);
-        } 
-        else {            
-            UIManager.Instance.levelUpUI.gameObject.SetActive(false);
-            GameStateManager.Instance.ResumeGame();
         }
-        //GameStateManager.Instance.ResumeGame();
+        else
+        {
+            if (IsOffline)
+            {
+                UIManager.Instance.levelUpUI.gameObject.SetActive(false);
+                GameStateManager.Instance.ResumeGame();
+            }
+        }
+
+        SyncNetStats();
     }
 
     public List<SkillController> SelectableWeaponToUpgrade()
     {
         List<SkillController> selectableSkill = new List<SkillController>();
         List<SkillController> pickedSkillList = new List<SkillController>();
-        //List<SkillController> tempAllSkillList = new List<SkillController>(currentPassiveSkillList);
-        
+
         selectableSkill.AddRange(currentWeaponList);
         if (currentWeaponList.Count < maxNumberOfWeapon)
         {
             List<SkillController> tempAllWeaponList = new List<SkillController>(allWeaponList);
-            foreach(var weapon in currentWeaponList)
+            foreach (var weapon in currentWeaponList)
             {
                 tempAllWeaponList.Remove(tempAllWeaponList.FirstOrDefault(c => c.skillName == weapon.skillName));
             }
-            selectableSkill.AddRange(tempAllWeaponList);        
+            selectableSkill.AddRange(tempAllWeaponList);
         }
 
-        selectableSkill.AddRange(currentPassiveSkillList);        
+        selectableSkill.AddRange(currentPassiveSkillList);
         if (currentPassiveSkillList.Count < maxNumberOfPassive)
         {
             List<SkillController> tempAllPassiveList = new List<SkillController>(allPassiveSkillList);
-            foreach(var passive in currentPassiveSkillList)
+            foreach (var passive in currentPassiveSkillList)
             {
                 tempAllPassiveList.Remove(tempAllPassiveList.FirstOrDefault(c => c.skillName == passive.skillName));
             }
@@ -358,10 +678,10 @@ public class Player : MonoBehaviour
                 selectableSkill.Remove(selectableSkill.FirstOrDefault(c => c.skillName == weapon.skillName));
             }
         }
-        
+
         Debug.Log("amountWeaponsMaxLv " + amountWeaponsMaxLv);
 
-        int amountPassiveSkillMaxLv = 0;        
+        int amountPassiveSkillMaxLv = 0;
         foreach (PassivesSkillController passive in currentPassiveSkillList)
         {
             if (passive.level == passive.maxLevel)
@@ -369,7 +689,7 @@ public class Player : MonoBehaviour
                 amountPassiveSkillMaxLv++;
                 selectableSkill.Remove(selectableSkill.FirstOrDefault(c => c.skillName == passive.skillName));
             }
-        }        
+        }
         Debug.Log("amountPassiveSkillMaxLv " + amountPassiveSkillMaxLv);
 
         if (selectableSkill.Count > 0)
@@ -397,10 +717,11 @@ public class Player : MonoBehaviour
                     pickedSkillList.Add(selectableSkill[rand]);
                     isSelected = true;
                 }
-            }            
+            }
         }
         return pickedSkillList;
     }
+
     public void SetCharacterDefaultStats()
     {
         playerLevel = 1;
@@ -417,6 +738,7 @@ public class Player : MonoBehaviour
 
         pickUpArea.transform.localScale = new Vector3(pickUpRadius, pickUpRadius, pickUpRadius);
     }
+
     private void UpdateStatsLevelUp()
     {
         float tempMaxHealth = maxHealth;
@@ -424,8 +746,12 @@ public class Player : MonoBehaviour
         currentHealth = (currentHealth / tempMaxHealth) * maxHealth;
         maxExp += characterStats.expForLevelUpStep;
     }
+
     public void ResetGame()
     {
+        if (GameModeManager.Mode == GameMode.Multiplayer && !IsServer)
+            return;
+
         transform.position = Vector3.zero;
         foreach (WeaponController weapon in currentWeaponList)
         {
@@ -435,14 +761,18 @@ public class Player : MonoBehaviour
 
         SetCharacterDefaultStats();
 
-        UIManager.Instance.ResetInventory();
-        UIManager.Instance.UpdateLeveTextlUI(playerLevel);
-        healthBar.SetMaxHeath(maxHealth);
-        healthBar.SetCurrentHeath(currentHealth);
-        UIManager.Instance.SetMaxEXP(maxExp);
-        UIManager.Instance.SetCurrentEXP(0);
+        if (IsOffline)
+        {
+            UIManager.Instance.ResetInventory();
+            UIManager.Instance.UpdateLeveTextlUI(playerLevel);
+            healthBar.SetMaxHeath(maxHealth);
+            healthBar.SetCurrentHeath(currentHealth);
+            UIManager.Instance.SetMaxEXP(maxExp);
+            UIManager.Instance.SetCurrentEXP(0);
+        }
 
         UpgradeWeapon(characterStats.defaultWeapon);
         animationController.ResetGame();
+        SyncNetStats();
     }
 }

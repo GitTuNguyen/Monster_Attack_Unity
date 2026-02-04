@@ -1,7 +1,8 @@
-using UnityEngine;
+﻿using UnityEngine;
 using UnityEngine.SceneManagement;
 using System.Collections.Generic;
 using System.Linq;
+using Unity.Netcode;
 
 public class GameStateManager : MonoBehaviour
 {
@@ -49,7 +50,7 @@ public class GameStateManager : MonoBehaviour
 
     public void GameOver()
     {
-        EnemySpawner enemySpawner = FindObjectOfType<EnemySpawner>();
+        EnemySpawner enemySpawner = FindFirstObjectByType<EnemySpawner>();
         enemySpawner.DestroyAllEnemy();
         ClearLootItem();
         isGameOver = true;
@@ -74,7 +75,7 @@ public class GameStateManager : MonoBehaviour
         ResumeGame();
         ClearLootItem();
         isGameOver = false;
-        Player player = FindObjectOfType<Player>();
+        Player player = Player.LocalPlayer ?? FindFirstObjectByType<Player>();
         enemyKilled = 0;
         UIManager.Instance.UpdateAmountEnemyKilledText();
         timePlayed += timer;
@@ -89,6 +90,7 @@ public class GameStateManager : MonoBehaviour
 
     public void BackToMenu()
     {
+        LobbyManager.Instance.ShutdownNetwork();
         SceneManager.LoadScene("Menu");
     }
 
@@ -122,3 +124,4 @@ public class GameStateManager : MonoBehaviour
     }
     
 }
+

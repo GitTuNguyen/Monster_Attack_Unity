@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Collections.Generic;
+using Unity.Netcode;
 using UnityEditor;
 using UnityEngine;
 
@@ -21,15 +22,17 @@ public class WeaponController : SkillController
     public int bonusAmount = 0;
     public Vector3 projectileSpawnPosition;
 
-    
+
     protected override void Start()
     {
         base.Start();
         maxLevel = stats.Count;
         skillType = stats[0].skillType;
-        //SetStats(level);
-        StartCoroutine(AttackRoutine());
+
+        if (NetHelper.IsServerOrOffline())
+            StartCoroutine(AttackRoutine());
     }
+
 
     public override void SetStats(int level)
     {
@@ -53,9 +56,31 @@ public class WeaponController : SkillController
 
     protected virtual void Attack()
     {
-        var projectile = Instantiate(prefab, projectileSpawnPosition, Quaternion.identity);
+        if (!NetHelper.IsServerOrOffline())
+            return;
+
+        GameObject projectile = Instantiate(prefab, projectileSpawnPosition, Quaternion.identity);
+
+        var weaponBehaviour = projectile.GetComponent<WeaponBehaviour>();
+        weaponBehaviour.weaponController = this;
+        weaponBehaviour.player = player;
+
+        if (GameModeManager.Mode == GameMode.Multiplayer)
+        {
+            var netObj = projectile.GetComponent<NetworkObject>();
+            if (netObj == null)
+            {
+                Debug.LogError($"{prefab.name} missing NetworkObject");
+                Destroy(projectile);
+                return;
+            }
+            netObj.Spawn();
+        }
+
         projectileList.Add(projectile);
     }
+
+
 
     protected virtual IEnumerator AttackRoutine()
     {
@@ -72,15 +97,17 @@ public class WeaponController : SkillController
 
     public void Reset()
     {
+        if (!NetHelper.IsServerOrOffline())
+            return;
+
         if (projectileList.Count > 0)
         {
             StopAllCoroutines();
-            foreach(var projectile in projectileList)
-            {
+            foreach (var projectile in projectileList)
                 Destroy(projectile);
-            }
+
             projectileList.Clear();
             StartCoroutine(AttackRoutine());
-        }        
+        }
     }
 }

@@ -6,13 +6,13 @@ public class FireballBehaviour : WeaponBehaviour
 
     private void Awake()
     {
-        player = FindObjectOfType<Player>();
+        TryAssignPlayer();
         Physics2D.IgnoreCollision(player.GetComponent<Collider2D>(), GetComponent<Collider2D>());
     }
     // Start is called before the first frame update
     protected override void Start()
     {        
-        weaponController = FindObjectOfType<FireballController>();
+        weaponController = FindFirstObjectByType<FireballController>();
         base.Start();
         closestEnemy = FindClosestEnemy();
         dir = closestEnemy.transform.position - player.transform.position;
@@ -31,7 +31,7 @@ public class FireballBehaviour : WeaponBehaviour
     private Enemy FindClosestEnemy()
     {
         float distanceMin = Mathf.Infinity;
-        Enemy[] enemyList = GameObject.FindObjectsOfType<Enemy>();
+        Enemy[] enemyList = FindObjectsByType<Enemy>(FindObjectsSortMode.None);
         Enemy closestEnemy = null;
         foreach (Enemy currentEnemy in enemyList)
         {
